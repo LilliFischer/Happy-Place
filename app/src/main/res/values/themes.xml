@@ -2,4 +2,23 @@
 <resources>
 
     <style name="Theme.HappyPlaces" parent="android:Theme.Material.Light.NoActionBar" />
-</resources>
+
+    <!-- Splash Screen Theme -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <!-- Set the splash screen background, animated icon, and animation duration. -->
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+
+        <!-- Use windowSplashScreenAnimatedIcon to add either a drawable or an
+             animated drawable. One of these is required. -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/happy_places_splash_logo</item> <!-- MODIFIED HERE -->
+        <!-- <item name="windowSplashScreenAnimationDuration">1000</item> --> <!-- Optional: for animated icons -->
+
+        <!-- Set the theme of the Activity that follows your splash screen. -->
+        <!-- This is required. -->
+        <item name="postSplashScreenTheme">@style/Theme.HappyPlaces</item>
+    </style>
+
+        <!-- Your existing application theme -->
+        <!-- <style name="Theme.HappyPlaces" parent="android:Theme.Material.Light.NoActionBar">
+            <!- Your current app theme attributes like colorPrimary, etc. -->
+        </resources>

@@ -1,11 +1,14 @@
-package com.example.happyplaces.ui.theme
+package com.example.happyplaces.ui.theme // Make sure this matches your package
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// Your New Color Palette
+val AccentRed = Color(0xFFF4B6B0)
+val BackgroundLightPink = Color(0xFFFCEDEA)
+val SurfaceYellow = Color(0xFFFBDEAC)
+val SurfaceCream = Color(0xFFFEF9F7)
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// Text Colors (Examples - adjust as needed for contrast)
+val TextPrimaryDark = Color(0xFF333333) // A dark gray for good readability
+val TextSecondaryDark = Color(0xFF555555) // A slightly lighter gray
+val TextOnAccent = Color.White // Text color that would go on top of AccentRed
