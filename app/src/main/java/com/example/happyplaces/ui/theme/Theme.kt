@@ -74,7 +74,6 @@ fun HappyPlacesTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        // darkTheme -> AppDarkColorScheme // TODO: Uncomment this if you implement AppDarkColorScheme
         else -> AppLightColorScheme // Default to your custom light scheme
     }
 
