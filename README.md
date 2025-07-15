@@ -24,4 +24,7 @@ Happy Places is an Android app to save, revisit, and cherish your favorite locat
 2.  **View:** Browse grid or use the "Map" button. Tap item for notes.
 3.  **Manage:** Long-press an item in the grid to edit or delete.
 
+## APK
+You can download the latest debug build for testing here:
+[Download Happy Places Debug APK](PASTE_THE_COPIED_URL_HERE)
 ---
