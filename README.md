@@ -26,5 +26,5 @@ Happy Places is an Android app to save, revisit, and cherish your favorite locat
 
 ## APK
 You can download the latest debug build for testing here:
-[Download Happy Places Debug APK](PASTE_THE_COPIED_URL_HERE)
+[[Download Happy Places Debug APK](PASTE_THE_COPIED_URL_HERE)](https://github.com/LilliFischer/Happy-Place/blob/master/apk_builds/app-debug.apk)
 ---
