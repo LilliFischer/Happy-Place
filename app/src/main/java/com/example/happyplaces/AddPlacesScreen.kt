@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable // Added for rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,6 +78,9 @@ fun AddPlacesScreen(
     var currentLongitude by remember { mutableStateOf<Double?>(null) }
     var addressTextForDisplay by remember { mutableStateOf<String?>("No location set") }
 
+    // New state flag to signal return from map picker
+    var justReturnedFromMapPicker by rememberSaveable { mutableStateOf(false) }
+
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
@@ -122,19 +126,34 @@ fun AddPlacesScreen(
     }
 
     val currentNavBackStackEntry by navController.currentBackStackEntryAsState()
-    LaunchedEffect(currentNavBackStackEntry) { // Key with currentNavBackStackEntry
+    LaunchedEffect(currentNavBackStackEntry) {
+        Log.d("AddPlacesScreen_LE_NavBack", "Enter NavBackStackEntry effect. Handle: ${currentNavBackStackEntry?.savedStateHandle}")
+
         currentNavBackStackEntry?.savedStateHandle?.let { savedStateHandle ->
+            Log.d("AddPlacesScreen_LE_NavBack", "SavedStateHandle exists.")
             if (savedStateHandle.contains("picked_latitude") && savedStateHandle.contains("picked_longitude")) {
+                Log.d("AddPlacesScreen_LE_NavBack", "SavedStateHandle CONTAINS lat/lon keys.")
                 val lat = savedStateHandle.get<Double>("picked_latitude")
                 val lon = savedStateHandle.get<Double>("picked_longitude")
+
+                Log.d("AddPlacesScreen_LE_NavBack", "Retrieved from SavedStateHandle: Lat $lat, Lon $lon")
+
                 if (lat != null && lon != null) {
                     currentLatitude = lat
                     currentLongitude = lon
-                    Log.d("AddPlacesScreen", "Received from MapPicker: Lat $lat, Lon $lon")
+                    justReturnedFromMapPicker = true // Signal that we've processed map data
+                    Log.d("AddPlacesScreen_LE_NavBack", "SUCCESS: currentLatitude SET TO $currentLatitude, currentLongitude SET TO $currentLongitude. justReturnedFromMapPicker = true")
                     updateAddressFromCoordinates(lat, lon)
+                    // It's important to remove them so this doesn't re-trigger on config changes
+                    // if the NavBackStackEntry is somehow reused by the navigation library.
                     savedStateHandle.remove<Double>("picked_latitude")
                     savedStateHandle.remove<Double>("picked_longitude")
+                    Log.d("AddPlacesScreen_LE_NavBack", "Removed lat/lon from SavedStateHandle.")
+                } else {
+                    Log.d("AddPlacesScreen_LE_NavBack", "Lat/Lon from SavedStateHandle were NULL.")
                 }
+            } else {
+                Log.d("AddPlacesScreen_LE_NavBack", "SavedStateHandle DOES NOT contain lat/lon keys.")
             }
         }
     }
@@ -166,10 +185,10 @@ fun AddPlacesScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { contentUri ->
-            scope.launch(Dispatchers.IO) { // Perform file saving off the main thread
+            scope.launch(Dispatchers.IO) {
                 val fileName = "happy_place_img_${System.currentTimeMillis()}.jpg"
                 val savedPath = saveUriToFile(context, contentUri, fileName)
-                withContext(Dispatchers.Main) { // Switch back to main thread for UI updates
+                withContext(Dispatchers.Main) {
                     if (savedPath != null) {
                         placesViewModel.updateDraftImagePath(savedPath)
                         Log.d("AddPlacesScreen", "Image saved to: $savedPath")
@@ -183,46 +202,72 @@ fun AddPlacesScreen(
         }
     }
 
-    LaunchedEffect(key1 = placeIdToEdit) { // Key with placeIdToEdit only
+    // Key this LaunchedEffect with placeIdToEdit AND justReturnedFromMapPicker
+    LaunchedEffect(key1 = placeIdToEdit, key2 = justReturnedFromMapPicker) {
         if (isEditMode && placeIdToEdit != null) {
-            Log.d("AddPlacesScreen", "Edit mode: Loading place ID $placeIdToEdit")
+            Log.d("AddPlacesScreen_LE_placeId", "Edit mode: Loading place ID $placeIdToEdit. justReturnedFromMapPicker: $justReturnedFromMapPicker")
+            // In edit mode, if we just returned from map picker, the NavBackStack LE
+            // would have updated currentLatitude/Longitude and triggered address update.
+            // We still need to load other draft data.
+            // If the place ID changes, or it's the initial load, collect the place.
+            // This 'collect' will re-run if placeIdToEdit changes.
+            // The `loadDraftData` should ideally not overwrite newly picked coords if they exist.
             placesViewModel.getPlaceByIdFlow(placeIdToEdit).collect { place ->
                 place?.let { loadedPlace ->
                     Log.d("AddPlacesScreen", "Editing Place: ${loadedPlace.title}")
-                    placesViewModel.loadDraftData(loadedPlace) // ViewModel loads all draft data
-                    currentLatitude = loadedPlace.latitude
-                    currentLongitude = loadedPlace.longitude
-                    addressTextForDisplay = if (loadedPlace.latitude != null && loadedPlace.longitude != null) {
-                        if (!loadedPlace.address.isNullOrBlank()) {
-                            loadedPlace.address
-                        } else {
-                            // Launch address fetching, will update addressTextForDisplay
-                            updateAddressFromCoordinates(loadedPlace.latitude!!, loadedPlace.longitude!!)
-                            "fetching address..." // Initial text while fetching
-                        }
+                    placesViewModel.loadDraftData(loadedPlace) // ViewModel loads draft text fields
+
+                    if (justReturnedFromMapPicker) {
+                        // Coordinates already updated by NavBack LE, address fetching started.
+                        // ViewModel's draft image/title/note are loaded from DB by loadDraftData.
+                        // If user changed title/note *then* picked location, loadDraftData might overwrite.
+                        // This implies `loadDraftData` should be smart or called strategically.
+                        // For now, assume currentLatitude/Longitude are the source of truth for location after map picking.
+                        Log.d("AddPlacesScreen_LE_placeId", "Edit Mode: Returned from map picker. Coordinates updated by NavBack. Address being fetched.")
                     } else {
-                        "no location set"
+                        // Not returning from map picker (e.g., initial load of edit screen)
+                        // Set coordinates from the loaded place
+                        currentLatitude = loadedPlace.latitude
+                        currentLongitude = loadedPlace.longitude
+                        addressTextForDisplay = if (loadedPlace.latitude != null && loadedPlace.longitude != null) {
+                            if (!loadedPlace.address.isNullOrBlank()) {
+                                loadedPlace.address
+                            } else {
+                                updateAddressFromCoordinates(loadedPlace.latitude!!, loadedPlace.longitude!!)
+                                "fetching address..."
+                            }
+                        } else {
+                            "no location set"
+                        }
                     }
                 }
             }
-        } else {
-            // In "Add New" mode, clear previous draft data if any
-            // except for potentially picked location if user navigated away and came back
-            // ViewModel's `clearDraft()` could be called here if needed,
-            // or ensure loadDraftData(null) effectively clears it.
-            // For now, assume ViewModel handles draft state appropriately.
-            Log.d("AddPlacesScreen", "Add mode. Initializing or using existing draft.")
-            // If there's a fresh entry into add mode (not from map picker), reset location
-            if (currentNavBackStackEntry?.savedStateHandle?.contains("picked_latitude") != true) {
-                currentLatitude = null
-                currentLongitude = null
-                addressTextForDisplay = "no location set"
-                // Optionally clear other parts of the draft via ViewModel if needed
-                // placesViewModel.clearDraftLocation() // Example
+            if (justReturnedFromMapPicker) { // Consume the flag after processing in edit mode
+                justReturnedFromMapPicker = false
+            }
+        } else { // Add New Mode
+            Log.d("AddPlacesScreen_LE_placeId", "Enter ADD MODE block. justReturnedFromMapPicker: $justReturnedFromMapPicker")
+
+            if (justReturnedFromMapPicker) {
+                // If we just returned from map picker, the NavBackStack LE handled coordinates
+                // and started address fetching. We don't want to reset addressTextForDisplay.
+                Log.d("AddPlacesScreen_LE_placeId", "Add Mode: IS returning from map picker. Coordinates updated by NavBack. Address being fetched.")
+                // Consume the flag
+                justReturnedFromMapPicker = false
+            } else {
+                // This is the initial entry to "add mode" OR a recomposition not related to map return.
+                Log.d("AddPlacesScreen_LE_placeId", "Add Mode: NOT just returned from map picker. CurrentLat BEFORE reset check: $currentLatitude")
+                // Only reset if no location has been set at all (e.g. initial screen load)
+                if (currentLatitude == null && currentLongitude == null) {
+                    addressTextForDisplay = "no location set"
+                    Log.d("AddPlacesScreen_LE_placeId", "Add Mode: Resetting addressTextForDisplay to 'no location set' as no coordinates exist. CurrentLat: $currentLatitude")
+                } else {
+                    Log.d("AddPlacesScreen_LE_placeId", "Add Mode: NOT resetting addressTextForDisplay as current coordinates exist: $currentLatitude, $currentLongitude")
+                }
             }
         }
     }
-    val scrollState = rememberScrollState() // Hoist scroll state
+    val scrollState = rememberScrollState()
 
     Scaffold(
         topBar = {
@@ -253,9 +298,10 @@ fun AddPlacesScreen(
                         val finalAddress = addressTextForDisplay?.takeIf {
                             it != "no location set" && it.isNotBlank() && !it.startsWith("fetching") && !it.startsWith("Failed") && !it.startsWith("Error")
                         }?.trim()
+                        Log.d("AddPlacesScreen_Save", "PREPARING TO SAVE Place. currentLatitude: $currentLatitude, currentLongitude: $currentLongitude, addressTextForDisplay: $addressTextForDisplay")
 
                         val placeData = Place(
-                            id = if (isEditMode) placeIdToEdit!! else 0, // ID must be non-null for edit
+                            id = if (isEditMode) placeIdToEdit!! else 0,
                             title = currentTitle,
                             imageUri = currentImagePath,
                             note = finalNote,
@@ -264,7 +310,9 @@ fun AddPlacesScreen(
                             longitude = currentLongitude,
                             address = finalAddress
                         )
-                        scope.launch { // Perform DB operations off main thread
+                        Log.d("AddPlacesScreen_Save", "Place OBJECT CREATED. Lat: ${placeData.latitude}, Lon: ${placeData.longitude}")
+
+                        scope.launch {
                             if (isEditMode) {
                                 placesViewModel.updatePlace(placeData)
                             } else {
@@ -288,22 +336,18 @@ fun AddPlacesScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues) // Padding from Scaffold
-                .pointerInput(Unit) { // For keyboard dismissal on tap outside
+                .padding(paddingValues)
+                .pointerInput(Unit) {
                     detectTapGestures(onTap = {
                         keyboardController?.hide()
                         focusManager.clearFocus()
                     })
                 }
-                .verticalScroll(scrollState) // Use hoisted scrollState
-                .padding(horizontal = 16.dp) // Padding for content within the scrollable area
-                .padding(bottom = 80.dp), // Extra padding at the bottom for FAB visibility
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Spacer at the top to give some breathing room
-            // Spacer(modifier = Modifier.height(10.dp)) // Use paddingValues from Scaffold instead
-
-            // --- Image Section ---
             Text("photo*", style = MaterialTheme.typography.titleMedium)
             Card(
                 modifier = Modifier
@@ -322,8 +366,8 @@ fun AddPlacesScreen(
                         Image(
                             painter = rememberAsyncImagePainter(
                                 model = File(imagePathString!!),
-                                placeholder = painterResource(id = R.drawable.ic_no_places_placeholder), // Add a placeholder
-                                error = painterResource(id = R.drawable.ic_no_places_placeholder) // Add an error placeholder
+                                placeholder = painterResource(id = R.drawable.ic_no_places_placeholder),
+                                error = painterResource(id = R.drawable.ic_no_places_placeholder)
                             ),
                             contentDescription = "selected image",
                             modifier = Modifier.fillMaxSize(),
@@ -348,7 +392,6 @@ fun AddPlacesScreen(
                 }
             }
 
-            // --- Details Section ---
             OutlinedTextField(
                 value = title,
                 onValueChange = { placesViewModel.updateDraftTitle(it) },
@@ -374,7 +417,6 @@ fun AddPlacesScreen(
                 shape = MaterialTheme.shapes.medium
             )
 
-            // --- Location Section ---
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
@@ -425,8 +467,6 @@ fun AddPlacesScreen(
                     }
                 }
             }
-            // Spacer for FAB is handled by the Column's bottom padding now
-            // Spacer(modifier = Modifier.height(72.dp))
         }
     }
 }
@@ -435,7 +475,7 @@ fun AddPlacesScreen(
 private fun LocationInfoText(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.bodyMedium, // Using bodyMedium for consistency
+        style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.fillMaxWidth(),
         textAlign = TextAlign.Start
     )
@@ -457,10 +497,11 @@ fun getCurrentDeviceLocation(
             onSuccess(location.latitude, location.longitude)
         } else {
             Log.w("AddPlacesScreen", "FusedLocationClient returned null location.")
-            onError(Exception("Unable to get current location.")) // Simpler error message
+            onError(Exception("Unable to get current location."))
         }
     }.addOnFailureListener { exception ->
         Log.e("AddPlacesScreen", "FusedLocationClient failed to get location.", exception)
         onError(exception)
     }
 }
+
